@@ -3,7 +3,7 @@ export LANG=C
 
 cat <<EOF > /etc/hosts
 127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
-10.72.86.103  controller controller
+$CONTROLLER_IP  controller controller
 10.72.86.102  compute01 compute01
 
 EOF
@@ -69,7 +69,7 @@ firewall-cmd --add-port=3306/tcp --permanent
 firewall-cmd --reload
 
 
-sed -i "4i\bind-address = 10.72.86.103\nmax_connections = 500\ndefault-storage-engine = innodb\ninnodb_file_per_table\ncollation-server = utf8_general_ci\ninit-connect = 'SET NAMES utf8'\ncharacter-set-server = utf8\n" /etc/my.cnf
+sed -i "4i\bind-address = $CONTROLLER_IP\nmax_connections = 500\ndefault-storage-engine = innodb\ninnodb_file_per_table\ncollation-server = utf8_general_ci\ninit-connect = 'SET NAMES utf8'\ncharacter-set-server = utf8\n" /etc/my.cnf
 
 
 systemctl enable mariadb.service
@@ -106,6 +106,8 @@ mysql --user=root --password=1234Qwer -e "CREATE DATABASE keystone; GRANT ALL PR
 yum -y install openstack-keystone python-keystoneclient
 yum -y install openstack-keystone httpd mod_wsgi python-openstackclient memcached python-memcached
 
+systemctl enable memcached.service
+systemctl restart memcached.service
 
 openstack-config --set /etc/keystone/keystone.conf DEFAULT admin_token 1234Qwer
 openstack-config --set /etc/keystone/keystone.conf DEFAULT verbose True
@@ -171,11 +173,6 @@ firewall-cmd --reload
 
 systemctl enable httpd.service
 systemctl start httpd.service
-
-#systemctl enable openstack-keystone.service
-#systemctl start openstack-keystone.service
-
-#systemctl status openstack-keystone.service
 
 
 (crontab -l -u keystone 2>&1 | grep -q token_flush) || \
@@ -340,7 +337,7 @@ openstack-config --set /etc/cinder/cinder.conf keystone_authtoken user_domain_id
 openstack-config --set /etc/cinder/cinder.conf keystone_authtoken project_name service
 openstack-config --set /etc/cinder/cinder.conf keystone_authtoken username cinder
 openstack-config --set /etc/cinder/cinder.conf keystone_authtoken password 1234Qwer
-openstack-config --set /etc/cinder/cinder.conf DEFAULT my_ip 10.72.86.103 
+openstack-config --set /etc/cinder/cinder.conf DEFAULT my_ip $CONTROLLER_IP 
 openstack-config --set /etc/cinder/cinder.conf DEFAULT glance_host controller
 openstack-config --set /etc/cinder/cinder.conf oslo_concurrency lock_path  /var/lock/cinder
 
@@ -397,11 +394,11 @@ openstack-config --set /etc/nova/nova.conf oslo_messaging_rabbit rabbit_userid o
 openstack-config --set /etc/nova/nova.conf oslo_messaging_rabbit rabbit_password 1234Qwer
 
 openstack-config --set /etc/nova/nova.conf DEFAULT auth_strategy keystone
-openstack-config --set /etc/nova/nova.conf DEFAULT my_ip 10.72.86.103
-openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_listen  10.72.86.103
+openstack-config --set /etc/nova/nova.conf DEFAULT my_ip $CONTROLLER_IP
+openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_listen  $CONTROLLER_IP
 openstack-config --set /etc/nova/nova.conf DEFAULT vnc_enabled  True
-openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_proxyclient_address 10.72.86.103
-openstack-config --set /etc/nova/nova.conf DEFAULT novncproxy_base_url http://10.72.86.103:6080/vnc_auto.html 
+openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_proxyclient_address $CONTROLLER_IP
+openstack-config --set /etc/nova/nova.conf DEFAULT novncproxy_base_url http://$CONTROLLER_IP:6080/vnc_auto.html 
 
 openstack-config --set /etc/nova/nova.conf DEFAULT network_api_class nova.network.neutronv2.api.API
 openstack-config --set /etc/nova/nova.conf DEFAULT security_group_api neutron
@@ -563,7 +560,7 @@ firewall-cmd --reload
 
 yum install openstack-dashboard httpd mod_wsgi memcached python-memcached -y 
 
-sed -i 's/OPENSTACK_HOST = "127.0.0.1"/OPENSTACK_HOST = "10.72.86.103"/g' /etc/openstack-dashboard/local_settings
+sed -i 's/OPENSTACK_HOST = "127.0.0.1"/OPENSTACK_HOST = "$CONTROLLER_IP"/g' /etc/openstack-dashboard/local_settings
 
 sed -i "s/ALLOWED_HOSTS = \['horizon.example.com', 'localhost'\]/ALLOWED_HOSTS = ['*',]/g" /etc/openstack-dashboard/local_settings
 
