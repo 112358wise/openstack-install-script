@@ -5,8 +5,8 @@ export LC_ALL=en_US.UTF-8
 
 #new script for compute
 cat <<EOF > /etc/hosts
-10.72.86.102 compute01
-10.72.86.100 controller 
+$HOST_IP compute01
+$CONTROLLER_IP controller 
 EOF
 
 yum update -y 

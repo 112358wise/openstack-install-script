@@ -4,6 +4,12 @@
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 
+cat <<EOF > /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+$HOST_IP  controller controller
+#10.72.86.102  compute01 compute01
+#list of compute host name & ip 
+EOF
 
 cat <<EOF > /etc/hostname
 controller
@@ -29,9 +35,17 @@ yum install openstack-selinux openstack-utils -y
 #dev env
 yum -y groupinstall "Development Tools"
 
+#lldp configuration 
+#systemctl daemon-reload
+#chkconfig lldpd on
+#systemctl start lldpd
+
+
 #db & rabbitmq 
 yum install mariadb mariadb-server MySQL-python wget git -y
 sed -i "4i\bind-address = $HOST_IP\nmax_connections = 500\ndefault-storage-engine = innodb\ninnodb_file_per_table\ncollation-server = utf8_general_ci\ninit-connect = 'SET NAMES utf8'\ncharacter-set-server = utf8\n" /etc/my.cnf
+firewall-cmd --add-port=3306/tcp --permanent
+firewall-cmd --reload
 
 systemctl enable mariadb.service
 systemctl restart mariadb.service
@@ -137,7 +151,7 @@ openstack endpoint create \
   identity
 
 openstack project create --description "Admin Project" admin
-openstack user create admin --password $PASSWD --email hyungsok@cisco.com
+openstack user create admin --password $PASSWD --email $MYEMAIL
 openstack role create admin
 openstack role add --project admin --user admin admin
 openstack project create --description "Service Project" service
@@ -231,8 +245,19 @@ glance image-create --name "cirros-0.3.4-x86_64" --file /tmp/images/cirros-0.3.4
   --disk-format qcow2 --container-format bare --visibility public  --progress
 
 
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken auth_uri http://controller:5000
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken auth_url http://controller:35357
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken auth_plugin  password
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken project_domain_id default
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken user_domain_id default
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken project_name service
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken username cinder
+openstack-config --set /etc/cinder/cinder.conf keystone_authtoken password 1234Qwer
+openstack-config --set /etc/cinder/cinder.conf DEFAULT my_ip $HOST_IP 
+openstack-config --set /etc/cinder/cinder.conf DEFAULT glance_host controller
+openstack-config --set /etc/cinder/cinder.conf oslo_concurrency lock_path  /var/lock/cinder
 
-#compute node 
+#compute service 
 
 mysql --user=root --password=$PASSWD -e " CREATE DATABASE nova; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY '$PASSWD'; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY '$PASSWD'; "
 
@@ -271,7 +296,6 @@ openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_listen  0.0.0.0
 openstack-config --set /etc/nova/nova.conf DEFAULT vnc_enabled  True
 openstack-config --set /etc/nova/nova.conf DEFAULT vncserver_proxyclient_address $HOST_IP
 openstack-config --set /etc/nova/nova.conf DEFAULT novncproxy_base_url http://$HOST_IP:6080/vnc_auto.html
-
 openstack-config --set /etc/nova/nova.conf DEFAULT network_api_class nova.network.neutronv2.api.API
 openstack-config --set /etc/nova/nova.conf DEFAULT security_group_api neutron
 openstack-config --set /etc/nova/nova.conf DEFAULT linuxnet_interface_driver nova.network.linux_net.LinuxOVSInterfaceDriver
