@@ -256,7 +256,7 @@ openstack-config --set /etc/cinder/cinder.conf keystone_authtoken password 1234Q
 openstack-config --set /etc/cinder/cinder.conf DEFAULT my_ip $HOST_IP 
 openstack-config --set /etc/cinder/cinder.conf DEFAULT glance_host controller
 openstack-config --set /etc/cinder/cinder.conf oslo_concurrency lock_path  /var/lock/cinder
-
+openstack-config --set /etc/cinder/cinder.conf DEFAULT osapi_volume_workers 4
 #compute service 
 
 mysql --user=root --password=$PASSWD -e " CREATE DATABASE nova; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'localhost' IDENTIFIED BY '$PASSWD'; GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY '$PASSWD'; "
@@ -704,3 +704,98 @@ systemctl restart openstack-heat-api.service openstack-heat-api-cfn.service \
 firewall-cmd --add-port=8000/tcp --permanent
 firewall-cmd --add-port=8004/tcp --permanent
 firewall-cmd --reload
+
+#installation for ceilmeter 
+#install mongodb
+yum install mongodb-server mongodb -y 
+
+sed -iorg "s/bind_ip = 127.0.0.1/bind_ip = $HOST_IP/g" /etc/mongod.conf 
+sed -iorg "s/#smallfiles = true/smallfiles = true/g" /etc/mongod.conf 
+
+
+systemctl enable mongod.service 
+systemctl restart mongod.service
+
+#create ceilmoter database 
+mongo --host controller --eval '
+  db = db.getSiblingDB("ceilometer");
+  db.createUser({user: "ceilometer",
+  pwd: "$PASSWD",
+  roles: [ "readWrite", "dbAdmin" ]})'
+
+source admin-openrc.sh
+
+openstack user create ceilometer --password $PASSWD 
+openstack role add --project service --user ceilometer admin
+openstack service create --name ceilometer \
+  --description "Telemetry" metering
+
+penstack endpoint create \
+  --publicurl http://controller:8777 \
+  --internalurl http://controller:8777 \
+  --adminurl http://controller:8777 \
+  --region RegionOne \
+
+#install ceilmeter package 
+yum install openstack-ceilometer-api openstack-ceilometer-collector \
+  openstack-ceilometer-notification openstack-ceilometer-central openstack-ceilometer-alarm \
+  python-ceilometerclient -y
+
+CEILO_SEC=$(openssl rand -hex 10)
+CEILO_SEC="698ebf029dd7006a49c6"
+openstack-config --set /etc/ceilometer/ceilometer.conf publisher telemetry_secret $CEILO_SEC
+
+openstack-config --set /etc/ceilometer/ceilometer.conf database connection mysql://ceilometer:$PASSWD@controller:27017/ceilometer
+openstack-config --set /etc/ceilometer/ceilometer.conf DEFAULT auth_strategy keystone
+openstack-config --set /etc/ceilometer/ceilometer.conf DEFAULT rpc_backend  rabbit
+openstack-config --set /etc/ceilometer/ceilometer.conf DEFAULT verbose True
+
+openstack-config --set /etc/ceilometer/ceilometer.conf oslo_messaging_rabbit rabbit_host  controller
+openstack-config --set /etc/ceilometer/ceilometer.conf oslo_messaging_rabbit rabbit_userid  openstack
+openstack-config --set /etc/ceilometer/ceilometer.conf oslo_messaging_rabbit rabbit_password $PASSWD
+
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken auth_uri  http://controller:5000/v2.0
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken identity_uri  http://controller:35357
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken admin_tenant_name  service
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken admin_user  ceilometer
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken admin_password $PASSWD
+
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_auth_url  http://controller:5000/v2.0
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_username  ceilometer
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_tenant_name service
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_password $PASSWD
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_endpoint_type  internalURL
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_region_name  RegionOne
+
+systemctl enable openstack-ceilometer-api.service openstack-ceilometer-notification.service \
+openstack-ceilometer-central.service openstack-ceilometer-collector.service \
+openstack-ceilometer-alarm-evaluator.service openstack-ceilometer-alarm-notifier.service
+
+systemctl restart openstack-ceilometer-api.service openstack-ceilometer-notification.service \
+openstack-ceilometer-central.service openstack-ceilometer-collector.service \
+openstack-ceilometer-alarm-evaluator.service openstack-ceilometer-alarm-notifier.service
+
+#ceilometer configuration for image/glance 
+openstack-config --set /etc/glance/glance-api.conf DEFAULT notification_driver messagingv2
+openstack-config --set /etc/glance/glance-api.conf DEFAULT rpc_backend rabbit
+openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_host controller
+openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_userid openstack
+openstack-config --set /etc/glance/glance-api.conf DEFAULT rabbit_password $PASSWD 
+
+openstack-config --set /etc/glance/glance-registry.conf DEFAULT notification_driver messagingv2
+openstack-config --set /etc/glance/glance-registry.conf DEFAULT rpc_backend rabbit
+openstack-config --set /etc/glance/glance-registry.conf DEFAULT rabbit_host controller
+openstack-config --set /etc/glance/glance-registry.conf DEFAULT rabbit_userid openstack
+openstack-config --set /etc/glance/glance-registry.conf DEFAULT rabbit_password $PASSWD 
+
+systemctl restart openstack-glance-api.service openstack-glance-registry.service
+
+#ceilometer configuration for cinder/block 
+openstack-config --set /etc/cinder/cinder.conf DEFAULT control_exchange cinder
+openstack-config --set /etc/cinder/cinder.conf DEFAULT notification_driver messagingv2
+
+systemctl restart openstack-cinder-api.service openstack-cinder-scheduler.service
+systemctl restart openstack-cinder-volume.service
+
+
+

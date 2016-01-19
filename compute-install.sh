@@ -170,5 +170,43 @@ KillMode=process
 Wanted=multi-user.target
 EOF
 
+#ceilometer installation 
+yum install openstack-ceilometer-compute python-ceilometerclient python-pecan -y
+
+CEILO_SEC="698ebf029dd7006a49c6"
+openstack-config --set /etc/ceilometer/ceilometer.conf publisher telemetry_secret $CEILO_SEC
+openstack-config --set /etc/ceilometer/ceilometer.conf DEFAULT rpc_backend  rabbit
+openstack-config --set /etc/ceilometer/ceilometer.conf DEFAULT verbose True
+
+openstack-config --set /etc/ceilometer/ceilometer.conf oslo_messaging_rabbit rabbit_host  controller
+openstack-config --set /etc/ceilometer/ceilometer.conf oslo_messaging_rabbit rabbit_userid  openstack
+openstack-config --set /etc/ceilometer/ceilometer.conf oslo_messaging_rabbit rabbit_password $PASSWD
+
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken auth_uri  http://controller:5000/v2.0
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken identity_uri  http://controller:35357
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken admin_tenant_name  service
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken admin_user  ceilometer
+openstack-config --set /etc/ceilometer/ceilometer.conf keystone_authtoken admin_password $PASSWD
+
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_auth_url  http://controller:5000/v2.0
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_username  ceilometer
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_tenant_name service
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_password $PASSWD
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_endpoint_type  internalURL
+openstack-config --set /etc/ceilometer/ceilometer.conf service_credentials os_region_name  RegionOne
+
+#ceilometer configuration for nova/vm 
+openstack-config --set /etc/nova/nova.conf DEFAULT instance_usage_audit  True
+openstack-config --set /etc/nova/nova.conf DEFAULT instance_usage_audit_period hour
+openstack-config --set /etc/nova/nova.conf DEFAULT notify_on_state_change vm_and_task_state
+openstack-config --set /etc/nova/nova.conf DEFAULT notification_driver messagingv2
+
+systemctl enable openstack-ceilometer-compute.service
+systemctl restart openstack-ceilometer-compute.service
+
+systemctl restart openstack-nova-compute.service
+
+
+
 
 
